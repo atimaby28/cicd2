@@ -53,7 +53,7 @@ jobs:
           host: 175.197.41.119
           username: test
           password: ${{ secrets.SSH_PASSWORD }}
-          port: 22
+          port: 223
           script: |
             kubectl get deploy -n swy -o wide
 
