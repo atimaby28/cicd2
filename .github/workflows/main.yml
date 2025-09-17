@@ -1,7 +1,9 @@
 name: project deployment
+
 on:
   push:
     branches: [main]
+
 jobs:
   build:
     name: build
@@ -9,30 +11,36 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-         distribution: temurin
-         java-version: '17'
+          distribution: temurin
+          java-version: '17'
+
       - name: Build jar with Gradle (uses build cache)
         uses: gradle/actions/setup-gradle@v4
+
       - name: Gradle build
         run: |
-         chmod +x ./gradlew
-         ./gradlew clean bootJar
+          chmod +x ./gradlew
+          ./gradlew clean bootJar
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/spring_basic:latest
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/spring_basic:${{ github.run_number }}
 
   deploy:
     name: deploy
@@ -44,40 +52,19 @@ jobs:
         with:
           host: 175.197.41.119
           username: test
-          password: qwer1234
-          port: 223
+          password: ${{ secrets.SSH_PASSWORD }}
+          port: 22
           script: |
-            docker pull hanwhabootcamp17/spring_basic:latest || true
-            CUR_PORT=`cat /etc/nginx/sites-enabled/default |  grep -oE '8080|8081'`
-            if [ "$CUR_PORT" = "8080" ]; then
-              OLD_PORT=8080
-              NEW_PORT=8081
-            else
-              OLD_PORT=8081
-              NEW_PORT=8080
-            fi
-            
-            echo $OLD_PORT
-            echo $NEW_PORT
-            
-            docker run -d --name back-$NEW_PORT -p $NEW_PORT:8080 --pull=always hanwhabootcamp17/spring_basic:latest
+            kubectl get deploy -n swy -o wide
 
-            for i in $(seq 1 36); do
-              if RESP="$(curl -fsS --max-time 3 "http://127.0.0.1:${NEW_PORT}/health" || true)"; then
-                echo "Health response: ${RESP}"
-                  if echo "$RESP" | grep -qi 'ok'; then
-                    echo "New container is healthy (curl ok)."
-                      break
-                  fi
-                fi
-                sleep 5
-            done
+            # 새 버전을 Blue/Green 방식으로 배포
+            kubectl set image deployment/spring-deployment-green spring-basic=${{ secrets.DOCKERHUB_USERNAME }}/spring_basic:${{ github.run_number }} -n swy
 
+            # 새 버전 배포 상태 확인
+            kubectl rollout status deployment/spring-deployment-green -n swy
 
-            # echo 'test ALL=(ALL) NOPASSWD: /usr/sbin/nginx, /usr/bin/sed' | sudo tee /etc/sudoers.d/test-nginx-sed
-            # sudo chmod 440 /etc/sudoers.d/test-nginx-sed
+            # 서비스 트래픽을 Green으로 전환
+            kubectl patch service spring-service -n swy -p '{"spec":{"selector":{"app":"spring-green"}}}'
 
-            sudo sed -i "s/$OLD_PORT/$NEW_PORT/g" /etc/nginx/sites-enabled/default
-            sudo nginx -s reload
-
-            docker rm -f back-$OLD_PORT 2>/dev/null || true
+            # 기존 Blue 디플로이먼트 스케일 다운
+            kubectl scale deployment/spring-deployment-blue --replicas=0 -n swy
