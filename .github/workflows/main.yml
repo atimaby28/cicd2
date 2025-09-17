@@ -60,13 +60,13 @@ jobs:
             # 새 버전을 Blue/Green 방식으로 배포
             kubectl set image deployment/spring-deployment-blue spring-basic=${{ secrets.DOCKERHUB_USERNAME }}/spring_basic:${{ github.run_number }} -n swy
 
-            kubectl scale deployment/spring-deployment-green --replicas=1 -n swy
+            kubectl scale deployment/spring-deployment-blue --replicas=1 -n swy
             
             # 새 버전 Blue/Green 배포 상태 확인
-            kubectl rollout status deployment/spring-deployment-green -n swy
+            kubectl rollout status deployment/spring-deployment-blue -n swy
 
             # 서비스 트래픽을 Blue/Green으로 전환
-            kubectl patch service spring-svc -n swy -p '{"spec":{"selector":{"app":"spring-green"}}}'
+            kubectl patch service spring-svc -n swy -p '{"spec":{"selector":{"app":"spring-blue"}}}'
 
             # 기존 Blue/Green 디플로이먼트 스케일 다운
-            kubectl scale deployment/spring-deployment-blue --replicas=0 -n swy
+            kubectl scale deployment/spring-deployment-green --replicas=0 -n swy
